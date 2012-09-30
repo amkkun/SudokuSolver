@@ -8,9 +8,16 @@ type Matrix a = [[a]]
 
 main :: IO ()
 main = do
-  sudoku <- forM [1..9] (\_ -> map read . words <$> getLine) 
-  let answers = solve sudoku
-  mapM_ (mapM_ (putStrLn . unwords . map show)) answers
+  sudoku17
+  -- sudoku <- forM [1..9] $ \_ -> map read . words <$> getLine
+  -- let answers = solve sudoku
+  -- mapM_ (mapM_ (putStrLn . unwords . map show)) answers
+
+sudoku17 :: IO ()
+sudoku17 = forever $ do
+  sudoku <- divide 9 . map read . divide 1 <$> getLine
+  mapM_ (mapM_ (putStrLn . unwords . map show)) $ solve sudoku 
+  putStrLn "--"
 
 solve :: Matrix Int -> [Matrix Int]
 solve matrix 
@@ -43,4 +50,3 @@ divide n xs = left : divide n right
 duplicate :: Eq a => [a] -> Bool
 duplicate [] = False
 duplicate (x:xs) = elem x xs || duplicate xs     
-    

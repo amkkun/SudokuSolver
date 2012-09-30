@@ -6,14 +6,10 @@ import Control.Monad
 import Data.Maybe
 import Data.List
 
-cellvals :: Choices
-cellvals = S.fromList [1..9]
-blank :: Val -> Bool
-blank = (== 0) 
 
 
 type Matrix a = [[a]]
-type Sudoku = Matrix Val
+type Sudoku = (Int, Int, Matrix Val)
 
 type SeqMap k a = Seq (k, Seq a)
 
@@ -21,10 +17,10 @@ type Choices = Seq Val
 
 type Val = Int
 type Pos = (Int, Int)
-type CellPos
+type CellPos = (Pos, Pos)
 
-type PosMap = SeqMap Pos Val
-type ValMap = SeqMap Val Pos
+type PosMap = SeqMap CellPos Val
+type ValMap = SeqMap Val CellPos
 
 -- data Hatena a = Def a | Yet (Seq a) 
 
@@ -73,19 +69,46 @@ eliminate pm
   where
     pm' = toPosMap . elimLine . elimPos . toValMap . elimDeterminate $ pm
 
--- * eliminate PosMap
+-- | PosMap <-> ValMap
+toValMap :: PosMap -> ValMap
+toValMap pm = do
+  val <- S.sort . seqnub . join . liftM snd $ pm
+  return (val, fmap fst $ S.filter (\(_, vals) -> F.elem val vals) pm)
+    
 toPosMap :: ValMap -> PosMap
 toPosMap vm = do
-  pos <- posList
+  pos <- restorePos . seqnub . join $ snd <$> vm 
   return (pos, fmap fst $ S.filter (\(_, poss) -> F.elem pos poss) vm)
 
+seqnub :: Eq a => Seq a -> Seq a
+seqnub xs 
+  | S.null xs = S.empty
+  | otherwise = first <| S.filter (/= first) xs
+  where
+    first = S.index xs 0
+
+restorePos :: Seq CellPos -> Seq CellPos
+restorePos ps = S.sort $ do
+  bp <- do
+    a <- S.fromList [1..fsts]
+    b <- S.fromList [1..snds]
+    return (a, b)
+  p <- do
+    a <- S.fromList [1..snds]
+    b <- S.fromList [1..fsts]
+    return (a, b)
+  return (bp, p)
+  where
+    fsts = F.maximum $ fst . fst <$> ps
+    snds = F.maximum $ snd . fst <$> ps
+    
 -- * eliminate determinate value
 elimDeterminate :: PosMap -> PosMap
 elimDeterminate pm = pm >>= return . elimDeterminate' determinate
   where
     determinate = S.filter (isSingle . snd) pm
 
-elimDeterminate' :: PosMap -> (Pos, Seq Val) -> (Pos, Seq Val)
+elimDeterminate' :: PosMap -> (CellPos, Seq Val) -> (CellPos, Seq Val)
 elimDeterminate' pm pair@(pos, vals)
   | isSingle $ snd pair = pair
   | otherwise = (pos, filterDup relatedVals vals)
@@ -93,11 +116,6 @@ elimDeterminate' pm pair@(pos, vals)
     relatedPM = S.filter (isRelatedPos pos . fst) pm 
     relatedVals = join $ liftM snd relatedPM
 
--- * eliminate ValMap
-toValMap :: PosMap -> ValMap
-toValMap pm = do
-  val <- cellvals
-  return (val, fmap fst $ S.filter (\(_, vals) -> F.elem val vals) pm)
 
 -- * eliminate position 
 elimPos :: ValMap -> ValMap
@@ -126,7 +144,7 @@ joinVM svm = liftM joinPos $ grouping (\vp vp' -> fst vp == fst vp') $ join svm
   where
     joinPos vm = (fst $ S.index vm 0, join $ liftM snd vm)
   
-subGroup :: (Pos -> Pos -> Bool) -> ValMap -> Seq ValMap
+subGroup :: (CellPos -> CellPos -> Bool) -> ValMap -> Seq ValMap
 subGroup isSame vm = grouping samePos tmp 
   where
     tmp = do
@@ -139,7 +157,7 @@ subGroup isSame vm = grouping samePos tmp
 elimLine :: ValMap -> ValMap
 elimLine = fmap (\(v, ps) -> (v, (reduceLine isSameCol . reduceLine isSameRow) ps))
 
-reduceLine :: (Pos -> Pos -> Bool) -> Seq Pos -> Seq Pos
+reduceLine :: (CellPos -> CellPos -> Bool) -> Seq CellPos -> Seq CellPos
 reduceLine f ps = filter2 cond ps fit
   where
     fit = join . liftM (liftM (`S.index` 0)) . S.filter isSingle . liftM (grouping f) . grouping isSameBox $ ps
@@ -171,107 +189,159 @@ filter2 f xs ys
 
     
 -- * position
-takeRelatedPos :: Pos -> Seq Pos -> Seq Pos
+takeRelatedPos :: CellPos -> Seq CellPos -> Seq CellPos
 takeRelatedPos p = S.filter (isRelatedPos p)
 
-isRelatedPos :: Pos -> Pos -> Bool
-isRelatedPos a b = a /= b &&
-                   (isSameBox a b || isSameRow a b || isSameCol a b)
+isRelatedPos :: CellPos -> CellPos -> Bool
+isRelatedPos a b = a /= b && (isSameBox a b || isSameRow a b || isSameCol a b)
 
-isSameBox :: Pos -> Pos -> Bool
-isSameBox a b = box a == box b
-  where
-    box (r, c) = ((r - 1) `div` boxSize) * boxSize +
-                 (c - 1) `div` boxSize 
+isSameRow :: CellPos -> CellPos -> Bool
+isSameRow p1 p2 = fst (fst p1) == fst (fst p2) &&
+                  fst (snd p1) == fst (snd p2)
 
-isSameRow :: Pos -> Pos -> Bool
-isSameRow a b = fst a == fst b
+isSameCol :: CellPos -> CellPos -> Bool
+isSameCol p1 p2 = snd (fst p1) == snd (fst p2) &&
+                  snd (snd p1) == snd (snd p2)
 
-isSameCol :: Pos -> Pos -> Bool
-isSameCol a b = snd a == snd b
-
-
+isSameBox :: CellPos -> CellPos -> Bool
+isSameBox p1 p2 = fst p1 == fst p2
 
 
 
 -- * IO
-analyze :: Matrix Val -> PosMap
-analyze matrix = S.zip posList (vals matrix)
-  where
-    vals = S.fromList . map choices . concat
+-- analyze :: Matrix Val -> PosMap
+-- analyze matrix = S.zip posList (vals matrix)
+--   where
+--     vals = S.fromList . map choices . concat
 
-choices :: Val -> Seq Val
-choices x
-  | blank x = S.fromList [1..boardSize]
-  | otherwise = S.singleton x
+-- choices :: Val -> Seq Val
+-- choices x
+--   | x == 0 = S.fromList [1..boardSize]
+--   | otherwise = S.singleton x
 
-posList :: Seq Pos
-posList = cps (1,1) 
+-- posList :: Seq Pos
+-- posList = cps (1,1) 
+--   where
+--     cps (r, c)
+--       | r > boardSize = S.empty
+--       | c > boardSize = cps (r + 1, 1)
+--       | otherwise = (r, c) <| cps (r, c + 1)
+
+-- toMatrix :: PosMap -> Matrix Val
+-- toMatrix pm = divide boardSize . F.toList . join . fmap snd $ sorted
+--   where
+--     sorted = S.sortBy (\(p1, _) (p2, _) -> compare p1 p2) pm
+
+-- divide :: Int -> [a] -> [[a]]
+-- divide _ [] = []
+-- divide n xs = left : divide n right
+--   where
+--     (left, right) = splitAt n xs
+    
+-- display :: Matrix Val -> IO ()
+-- display = mapM_ (putStrLn . concat . intersperse " " . map show)
+
+-- main :: IO ()
+-- main = do
+--   -- files <- getArgs
+--   -- sudoku <- getSudoku
+--   -- let answers = solve sudoku
+--   -- mapM_ display answers
+--   -- putStrLn "--"
+--   -- showSolve easy
+--   -- showSolve hard
+--   sudoku17
+  
+-- sudoku17 :: IO ()
+-- sudoku17 = forever $ do
+--   sudoku <- divide 9 . map read . divide 1 <$> getLine
+--   F.mapM_ display $ runSolve sudoku
+--   putStrLn "--"
+  
+-- showSolve :: Matrix Val -> IO ()
+-- showSolve = F.mapM_ display . runSolve 
+
+-- runSolve :: Matrix Val -> Seq (Matrix Val)
+-- runSolve = fmap toMatrix . solve . eliminate . analyze
+
+
+    
+runSolve :: Sudoku -> Seq (Matrix Val)
+runSolve = fmap toMatrix . solve . eliminate . analyze
+
+showSolve :: Sudoku -> IO ()
+showSolve = F.mapM_ display . runSolve 
+
+
+analyze :: Sudoku -> PosMap
+analyze (row, col, matrix) = 
+  S.zip (cellposList row col) (vals matrix)
   where
-    cps (r, c)
-      | r > boardSize = S.empty
-      | c > boardSize = cps (r + 1, 1)
-      | otherwise = (r, c) <| cps (r, c + 1)
+    vals = S.fromList . map (\x -> if x == 0 then S.fromList [1..(row * col)] else S.singleton x) . concat
+
+cellposList :: Int -> Int -> Seq CellPos
+cellposList rsize csize = cps (1,1) (1,1) 
+  where
+    cps (br, bc) (r, c)
+      | br > csize = S.empty
+      | r > rsize = cps (br + 1, 1) (1, 1)
+      | bc > rsize = cps (br, 1) (r + 1, 1)
+      | c > csize = cps (br, bc + 1) (r, 1)
+      | otherwise = ((br, bc), (r, c)) <| cps (br, bc) (r, c + 1)
 
 toMatrix :: PosMap -> Matrix Val
-toMatrix pm = divide boardSize . F.toList . join . fmap snd $ sorted
+toMatrix pm = divide boardsize . F.toList . join . liftM snd $ sorted
   where
-    sorted = S.sortBy (\(p1, _) (p2, _) -> compare p1 p2) pm
+    boardsize = intSqrt (S.length pm)
+    sorted = S.sortBy (\(p1, _) (p2, _) -> compare (replace p1) (replace p2)) pm
+    replace ((a, b), (c, d)) = ((a, c), (b, d))
 
+intSqrt :: Int -> Int
+intSqrt num = intSqrt' num 1
+  where
+    intSqrt' n m
+      | n < m * m = m - 1
+      | otherwise = intSqrt' n (m + 1)
+
+-- divide :: Int -> Seq a -> Seq (Seq a)
+-- divide n xs
+--   | S.null xs = S.empty
+--   | otherwise = fit <| divide n rest
+--   where
+--     (fit, rest) = S.splitAt n xs
 divide :: Int -> [a] -> [[a]]
 divide _ [] = []
-divide n xs = left : divide n right
-  where
-    (left, right) = splitAt n xs
+divide n xs = take n xs : divide n (drop n xs)
     
 display :: Matrix Val -> IO ()
-display = mapM_ (putStrLn . concat . intersperse " " . map show)
+display = mapM_ (putStrLn . unwords . map show)
 
+getSudoku :: IO Sudoku
+getSudoku = do
+  (rowsize:colsize:_) <- map read . words <$> getLine
+  let boardsize = rowsize * colsize
+  matrix <- forM [1..boardsize] (\_ -> map read . words <$> getLine)
+  return (rowsize, colsize, matrix)
+  
 main :: IO ()
 main = do
-  -- files <- getArgs
-  -- sudoku <- getSudoku
-  -- let answers = solve sudoku
+  -- filepath <- getArgs
+  sudoku <- getSudoku
+  showSolve sudoku
   -- mapM_ display answers
   -- putStrLn "--"
-  -- showSolve easy
   -- showSolve hard
-  sudoku17
+  -- sudoku17
+  --showSolve large
   
 sudoku17 :: IO ()
 sudoku17 = forever $ do
   sudoku <- divide 9 . map read . divide 1 <$> getLine
-  F.mapM_ display $ runSolve sudoku
+  showSolve (3, 3, sudoku)
+  -- mapM_ (\_ -> putStr "##") $ solve (3, 3, sudoku)
   putStrLn "--"
   
-showSolve :: Matrix Val -> IO ()
-showSolve = F.mapM_ display . runSolve 
-
-runSolve :: Matrix Val -> Seq (Matrix Val)
-runSolve = fmap toMatrix . solve . eliminate . analyze
-
-easy :: Matrix Val
-easy = [ [2,5,0,0,3,0,0,4,6]
-       , [0,0,9,0,2,0,0,0,8]
-       , [4,3,0,7,6,1,0,0,9]
-       , [0,0,0,6,0,0,0,0,0]
-       , [1,0,0,9,8,4,0,0,5]
-       , [0,0,0,0,0,2,0,0,0]
-       , [3,0,0,1,4,8,0,7,2]
-       , [8,0,0,0,7,0,9,0,0]
-       , [7,4,0,0,9,0,0,5,3]
-       ]
 
 
 
-hard :: Matrix Val
-hard = [ [8,0,0,0,0,0,0,0,0]
-       , [0,0,3,6,0,0,0,0,0]
-       , [0,7,0,0,9,0,2,0,0]
-       , [0,5,0,0,0,7,0,0,0]
-       , [0,0,0,0,4,5,7,0,0]
-       , [0,0,0,1,0,0,0,3,0]
-       , [0,0,1,0,0,0,0,6,8]
-       , [0,0,8,5,0,0,0,1,0]
-       , [0,9,0,0,0,0,4,0,0]
-       ]
+

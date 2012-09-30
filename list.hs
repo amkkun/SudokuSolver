@@ -295,12 +295,12 @@ getSudoku = do
 main :: IO ()
 main = do
   -- files <- getArgs
-  -- sudoku <- getSudoku
-  -- let answers = solve sudoku
+  sudoku <- getSudoku
+  showSolve sudoku
   -- mapM_ display answers
   -- putStrLn "--"
   -- showSolve hard
-  sudoku17
+  -- sudoku17
   --showSolve large
   
 sudoku17 :: IO ()

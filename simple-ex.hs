@@ -9,9 +9,9 @@ type Matrix a = [[a]]
 main :: IO ()
 main = do
   (filepath:_) <- getArgs
-  strs <- lines <$> readFile filepath  
+  strs <- lines <$> readFile filepath
   normal strs
-  sudoku17 strs
+  -- sudoku17 strs
 
 normal :: [String] -> IO ()
 normal strs = do
@@ -29,7 +29,7 @@ sudoku17 = mapM_ sudoku17'
       putStrLn "--"
 
 analyze :: Int -> Int -> [Int] -> Matrix (Matrix Int)
-analyze rsize csize = map transpose . divide csize . divide rsize . divide csize
+analyze rsize csize = map transpose . divide rsize . divide rsize . divide csize
 
 solve :: Matrix (Matrix Int) -> [Matrix (Matrix Int)]
 solve matrix 
